@@ -1,0 +1,155 @@
+# DEV.LOG 部署笔记
+
+> 这是待执行的部署流程，不代表已经完成服务器、备案或 HTTPS 配置。目标：Linux + Node 22 LTS + MySQL 8.0+ + Nginx。域名、证书路径与目录均须替换。
+
+## 1. 部署前检查
+
+- 替换 `frontend/src/data/projects.ts` 中的姓名、定位、占位项目和联系方式；只填写可验证的经历。
+- 完成本地登录、发布 / 草稿、分页 / 标签与 Markdown 安全验收。
+- 解析域名到服务器 IP；中国大陆服务器按适用要求完成备案后再提供服务。
+- 服务器只向公网开放 80、443 与必要的管理端口；**3000、3306 不对公网开放**。
+- 使用独立的非 root 系统账号运行 Node，数据库也使用独立的最小权限账号。
+- 设置服务器和数据库时区为 UTC，驱动使用 `timezone: 'Z'`；浏览器负责本地时间显示。
+
+## 2. 安装、构建
+
+将代码放在 `/var/www/devlog`，从该目录运行：
+
+```bash
+npm install --prefix backend --package-lock=false
+npm install --prefix frontend --package-lock=false
+npm run typecheck --prefix backend
+npm run build --prefix backend
+npm run typecheck --prefix frontend
+npm run build --prefix frontend
+```
+
+当前指定目录不包含锁文件，因此暂不使用 `npm ci`。构建验证完成后可以 `npm prune --omit=dev --prefix backend --package-lock=false`，下次构建前需重新安装开发依赖。不要把 node_modules 与 dist 提交到 Git。
+
+## 3. 初始化生产数据库
+
+**不要用 `DB_SYNC=true` 在生产数据库自动改表。** 用 DBA / 部署账号执行建库建表，运行账号只授权 CRUD。
+
+```sql
+CREATE DATABASE blog CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE blog;
+
+CREATE TABLE post (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  title VARCHAR(160) NOT NULL,
+  summary VARCHAR(500) NOT NULL,
+  content MEDIUMTEXT NOT NULL,
+  tags JSON NOT NULL,
+  status ENUM('draft', 'published') NOT NULL DEFAULT 'draft',
+  createdAt DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  updatedAt DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+    ON UPDATE CURRENT_TIMESTAMP(6),
+  PRIMARY KEY (id),
+  INDEX IDX_post_status_created_id (status, createdAt, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE USER 'blog_app'@'127.0.0.1' IDENTIFIED BY 'REPLACE_WITH_STRONG_DB_PASSWORD';
+GRANT SELECT, INSERT, UPDATE, DELETE ON blog.* TO 'blog_app'@'127.0.0.1';
+```
+
+SQL 对应当前 `post.entity.ts`。以后变更实体时，先备份、在测试库验证增量 SQL，再手工执行；这里没有自动迁移，也没有导入 / 种子脚本。
+
+MySQL 账号的 host 必须与连接方式匹配，若数据库在其他内网主机上，请限定应用机器的内网地址，不授予 `%`。如果数据库强制 TLS，需要进一步完善驱动证书配置再部署，当前配置面向本机 / 受控内网。
+
+## 4. 环境变量与进程
+
+在 `backend/.env` 中按 README 设置数据库、单管理员哈希和随机 JWT 密钥，生产差异如下：
+
+```dotenv
+NODE_ENV=production
+PORT=3000
+DB_SYNC=false
+CORS_ORIGINS=https://example.com
+```
+
+```bash
+chmod 600 /var/www/devlog/backend/.env
+```
+
+确保该文件归应用运行账号所有。不要通过截图、日志或文章暴露凭据。密钥不要放在前端 `VITE_*` 变量中。
+
+先在 `backend/` 运行 `npm start`，验证能启动。常驻运行可在服务器自行创建 systemd unit（运维配置，不新增到仓库）：
+
+```ini
+[Unit]
+Description=DEV.LOG API
+After=network.target
+
+[Service]
+Type=simple
+User=devlog
+Group=devlog
+WorkingDirectory=/var/www/devlog/backend
+ExecStart=/usr/bin/node /var/www/devlog/backend/dist/main.js
+Environment=NODE_ENV=production
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
+```
+
+- Node 路径以服务器 `command -v node` 为准；创建好 `devlog` 系统账号并授予读取代码和 `.env` 的权限。
+- 固定 `WorkingDirectory`，Nest ConfigModule 才会读取正确的 `.env`。
+- systemd 由服务器管理员配置并执行 `daemon-reload`、`enable --now`，查看 `journalctl -u devlog -f`。
+- Nest 绑定 `0.0.0.0` 以支持开发远程预览；生产环境必须通过主机防火墙 / 安全组禁止外网访问 3000。
+
+## 5. 配置 Nginx 与 HTTPS
+
+1. 安装 Nginx 与证书签发工具，创建 `/var/www/certbot`。
+2. 将本目录 `nginx.conf` 复制到 `/etc/nginx/conf.d/devlog.conf`。它须由主配置的 `http {}` 引入。
+3. 把所有 `example.com`、证书路径和静态目录替换为真实值。
+4. **证书还不存在时，不要启用 443 server 块**，先仅保留 HTTP server，运行 `nginx -t` 后加载。
+5. 使用 ACME webroot 签发证书，例如：
+
+```bash
+sudo certbot certonly --webroot -w /var/www/certbot -d example.com
+```
+
+6. 证书签发成功后启用 443 server，验证路径正确，再运行：
+
+```bash
+sudo nginx -t
+sudo systemctl reload nginx
+sudo certbot renew --dry-run
+```
+
+生产前端通过同源 `/api` 访问后端，Nginx 的 `proxy_pass` **不带尾部斜杠**，避免丢失 `/api` 前缀。刷新 `/blog/1` 应返回 Vue 的 index.html。不存在的静态资源返回 404，而不是 SPA HTML。
+
+示例 CSP 允许 Google Fonts 样式 / 字体，不允许任意脚本或 frame；如果改用本地字体，删掉对应远程域名。确认 HTTPS 稳定后可启用注释中的 HSTS。生产禁止 iframe 嵌入；Vite 开发预览不受这个生产配置影响。
+
+登录入口按 IP 限流，最多每分钟 5 次，允许 5 次突发，超出返回统一 JSON 429。若使用 CDN / 前置代理，应先正确配置只信任代理网段的 `real_ip`，否则会误把所有请求识别为一个代理 IP。Nginx 自身的 413 / 502 等基础设施错误不保证 Nest JSON 格式，前端会显示通用错误提示。
+
+## 6. 上线验收
+
+- [ ] `/`、`/blog`、文章详情与登录页正常，移动端无横向溢出。
+- [ ] 直接刷新前端深链接不返回 Nginx 404。
+- [ ] `/api/posts` 返回统一分页响应，列表无 content。
+- [ ] 无 token 请求 `/api/admin/posts` 为 401。
+- [ ] 新建草稿不公开，发布可见，修改 / 转草稿 / 删除按预期生效。
+- [ ] 非法 DTO 为 400，未知文章为 404，后端错误不泄露 SQL / 堆栈。
+- [ ] 登录限流、HTTPS 证书和自动续期验证通过。
+- [ ] 外网无法连接 3000 / 3306，MySQL 和系统账号均最小权限。
+- [ ] `.env` 不在前端静态目录、Git 或公开备份里。
+
+## 7. 备份、更新与回滚
+
+- 数据是 MySQL 中的文章；`docs/` 是独立的手写草稿，不等价于数据库备份。
+- 定期用 `mysqldump --single-transaction` 做备份，使用交互密码提示或受限凭据文件，避免命令行明文密码。备份加密保存在服务器外，并定期在测试库验证恢复。
+- 更新前保留上一版构建产物并备份数据库。先检查类型和构建，再替换前端 dist、后端 dist 并重启服务；推荐在服务器上使用版本目录与软链接完成原子切换（不改变仓库结构）。
+- 数据库结构变更单独记录增量 SQL，避免直接用旧代码覆盖新结构。回滚代码不代表能回滚数据。
+- 更改 JWT_SECRET 会使旧 token 失效，需要重新登录；更改管理员密码不会自动吊销已发出的 JWT。
+
+## 可以沉淀成文章的内容
+
+完成真实部署之后，再记录遇到的问题和证据：history 路由刷新 404、代理前缀、Cookie 与 Bearer token 的取舍、CSP 与 Markdown、数据库账号权限、幂等发布与备份恢复。本文目前是计划与操作清单，不应包装成已经解决的线上经历。
