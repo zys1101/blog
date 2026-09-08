@@ -126,7 +126,7 @@ sudo certbot renew --dry-run
 
 生产前端通过同源 `/api` 访问后端，Nginx 的 `proxy_pass` **不带尾部斜杠**，避免丢失 `/api` 前缀。刷新 `/blog/1` 应返回 Vue 的 index.html。不存在的静态资源返回 404，而不是 SPA HTML。
 
-示例 CSP 允许 Google Fonts 样式 / 字体，不允许任意脚本或 frame；如果改用本地字体，删掉对应远程域名。确认 HTTPS 稳定后可启用注释中的 HSTS。生产禁止 iframe 嵌入；Vite 开发预览不受这个生产配置影响。
+CSP 不允许任何远程脚本、样式或字体（站点使用系统字体回退）；若日后引入远程字体，再按需放开对应域名。确认 HTTPS 稳定后可启用注释中的 HSTS。生产禁止 iframe 嵌入；Vite 开发预览不受这个生产配置影响。
 
 登录入口按 IP 限流，最多每分钟 5 次，允许 5 次突发，超出返回统一 JSON 429。若使用 CDN / 前置代理，应先正确配置只信任代理网段的 `real_ip`，否则会误把所有请求识别为一个代理 IP。Nginx 自身的 413 / 502 等基础设施错误不保证 Nest JSON 格式，前端会显示通用错误提示。
 
