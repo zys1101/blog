@@ -1,6 +1,6 @@
 import type { Profile, Project } from "../types";
 
-// 以下定位、技术栈和占位项目仅作展示模板，上线求职前请替换成真实信息。
+// 以下定位信息仅作展示模板，上线求职前请替换成真实信息。
 export const profile: Profile = {
   name: "你的名字",
   role: "后端开发 / 全栈探索",
@@ -12,51 +12,53 @@ export const profile: Profile = {
 
 export const projects: Project[] = [
   {
-    id: "devlog",
-    name: "个人博客与作品集",
+    id: "mech-crowdsourcing",
+    name: "机械设计众包平台",
     category: "FULL STACK",
     description:
-      "从界面到接口，搭建属于自己的数字空间。记录技术实践，也让每一次思考有迹可循。",
+      "连接机械设计需求方与设计师的全栈众包平台，跑通「发布需求 → AI 报价 → 设计师报价 → 支付 → 交付验收 → 提现」完整业务闭环。微信小程序、网站与管理后台共用同一套后端与数据库。",
     highlights: [
-      "Vue 3 + TypeScript，前后端类型明确",
-      "JWT 鉴权与草稿 / 发布管理",
-      "安全的 Markdown 渲染与标签分页",
+      "NestJS + Prisma + MySQL 单一后端，小程序与网站共用 /api/mp/v1",
+      "内置 AI 报价引擎：LLM 只做理解与分类，价格由确定性规则计算",
+      "微信登录与支付（MOCK 模式可本地跑通），167 单测 + 45 e2e 保障交易链路",
     ],
-    tags: ["Vue 3", "NestJS", "MySQL"],
-    links: {},
+    tags: ["NestJS", "uni-app", "Vue 3", "MySQL", "微信支付"],
+    links: { source: "https://github.com/zys1101/mech-design-platform" },
     visual: "browser",
     placeholder: false,
   },
   {
-    id: "backend",
-    name: "你的后端代表项目",
-    category: "BACKEND · 待替换",
+    id: "quote-agent-rag",
+    name: "AI 报价 Agent（RAG 引擎）",
+    category: "AI · BACKEND",
     description:
-      "在这里放一个真实的后端项目。讲清业务场景、设计取舍，以及你独立解决的问题。",
+      "机械设计 AI 报价系统的本地 Agent：LLM 只负责阅读需求资料与分类，价格与人工审核判定完全由确定性规则引擎计算；通过 Qdrant 向量检索脱敏历史成交案例，为报价与审核提供依据。",
     highlights: [
-      "业务背景：描述真实需求与约束",
-      "核心设计：解释方案选择与取舍",
-      "验证结果：提供可复现的测试依据",
+      "Qdrant RAG + bge-m3 向量检索脱敏真实成交案例，拼入评估提示词",
+      "LLM 只输出结构化需求，完整度分数由规则确定性重算，不信任模型自报",
+      "SQLite 幂等缓存与审计日志，按需触发 LLM 审核，多阶段任务并行化",
     ],
-    tags: ["工程设计", "数据库", "项目占位"],
-    links: {},
-    visual: "flow",
-    placeholder: true,
+    tags: ["Python", "Qdrant", "RAG", "Ollama", "Docker"],
+    links: { source: "https://github.com/zys1101/agent" },
+    visual: "terminal",
+    placeholder: false,
   },
   {
-    id: "toolbox",
-    name: "你的开源 / 实践作品",
-    category: "SIDE PROJECT · 待替换",
+    id: "rm-sentry-vision",
+    name: "RoboMaster 哨兵视觉",
+    category: "C++ · VISION",
     description:
-      "把重复的工作交给代码。这里留给你的开源工具、课程设计，或一个认真打磨的小作品。",
+      "Horizon 战队 RM26 赛季全车型通用自瞄仓库，本人负责其中哨兵（sentry）分支的视觉代码开发与维护：哨兵作为全自动作战单元，其自瞄逻辑在独立分支上迭代演进。",
     highlights: [
-      "说明作品解决的具体问题",
-      "标明自己负责的功能与实现",
-      "补充仓库地址与本地运行步骤",
+      "C++ / CMake，OpenCV 图像处理 + OpenVINO / TensorRT 双推理框架",
+      "串口 / USB2CAN 与电控通信，适配 x86 MiniPC 与 Jetson Orin Nano",
+      "哨兵分支独立迭代，与其它车型分支（英雄 / 步兵等）解耦",
     ],
-    tags: ["TypeScript", "自动化", "项目占位"],
-    links: {},
-    visual: "terminal",
-    placeholder: true,
+    tags: ["C++", "OpenCV", "TensorRT", "RoboMaster"],
+    links: {
+      source: "https://github.com/Horizon-Rm-Vision/Horizon_Rm_Vision_26/tree/sentry",
+    },
+    visual: "flow",
+    placeholder: false,
   },
 ];
