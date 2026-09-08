@@ -1,1 +1,205 @@
-# 个人博客
+# DEV.LOG · 个人作品集与技术博客
+
+面向求职展示的全栈博客骨架：用作品集介绍项目，用技术文章解释工程思考。前后端均使用 **TypeScript 严格模式**，前后端分离，作品集数据与文章数据分开维护。
+
+> 姓名、求职定位及两个占位项目不是个人履历，请在上线前替换为真实内容。数据库初始为空，不自动发布示例文章。此版本仅提供单管理员登录，不包含注册、多用户、角色权限、评论、点赞、浏览量、搜索或文件上传。
+
+## 技术栈
+
+| 层         | 技术与职责                                                              |
+| ---------- | ----------------------------------------------------------------------- |
+| 前端       | Vue 3 Composition API、TypeScript、Vite、Vue Router、Axios              |
+| 文章渲染   | markdown-it → highlight.js → DOMPurify；禁用原始 HTML，最终 HTML 再清洗 |
+| 后端       | NestJS、TypeScript、TypeORM、MySQL 8.0+                                 |
+| 鉴权与校验 | JWT / passport-jwt、bcrypt、class-validator、class-transformer          |
+| 部署       | Nginx 静态托管、HTTPS、`/api` 反向代理                                  |
+
+没有 UI 框架，页面用手写 CSS 实现响应式布局。字体有系统字体回退，不依赖远程字体才能运行。
+
+## 本地启动
+
+### 1. 准备环境
+
+- Node.js **22.12+**（建议 Node 22 LTS）、npm 10+
+- MySQL **8.0+**（建议 8.4 LTS），字符集 `utf8mb4`
+- 两个终端，分别启动前后端；命令默认从仓库根目录开始
+
+严格按照指定目录交付，没有额外的 `.env.example`、锁文件、测试文件或迁移文件。安装命令带 `--package-lock=false`，避免额外生成文件；因此依赖尚未锁定。正式长期维护时，建议确认可以增加锁文件后再使用 `npm ci`。
+
+### 2. 初始化本地数据库
+
+以数据库管理员身份运行以下 SQL。账号密码仅是需要替换的占位符，不是应用默认凭据。
+
+```sql
+CREATE DATABASE blog CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'blog_app'@'127.0.0.1' IDENTIFIED BY 'REPLACE_WITH_DB_PASSWORD';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES
+  ON blog.* TO 'blog_app'@'127.0.0.1';
+```
+
+该授权仅用于本地自动同步表结构。生产环境仅授予 CRUD，见 [部署笔记](deploy/deploy.md)。如果 MySQL 按主机名解析本地账号，请使用匹配实际连接主机的账号（例如 `localhost`），不要为了排错开放 `%`。
+
+### 3. 安装后端并设置管理员
+
+```bash
+cd backend
+npm install --package-lock=false
+npm run hash-password
+```
+
+在本地终端输入至少 12 个字符的强密码（最多 72 个 UTF-8 字节）。**这个辅助命令会显示输入，仅在可信的本地终端执行**；密码不会写进 shell 命令历史。复制输出的 bcrypt 哈希，用于下面的配置。
+
+生成 JWT 随机密钥（下面输出 64 字符的随机十六进制字符串）：
+
+```bash
+openssl rand -hex 32
+```
+
+自行创建 `backend/.env`（已被 Git 忽略；不属于交付源码清单）：
+
+```dotenv
+NODE_ENV=development
+PORT=3000
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_USER=blog_app
+DB_PASSWORD='REPLACE_WITH_DB_PASSWORD'
+DB_NAME=blog
+DB_SYNC=true
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD_HASH='$2b$12$REPLACE_WITH_THE_COMPLETE_HASH'
+JWT_SECRET='REPLACE_WITH_THE_RANDOM_SECRET'
+CORS_ORIGINS=http://localhost:5173
+```
+
+- 没有内置用户名密码，也不建立用户表。唯一管理员从环境变量读取。
+- 密码与哈希不要提交到 Git；`.env` 中含 `#` 等特殊字符的值要加引号。
+- 哈希使用 bcrypt cost 12；JWT 有效期固定 **2 小时**，只接受 HS256，并校验 issuer / audience。
+- `.env` 相对后端工作目录加载，务必在 `backend/` 运行后端命令。
+- 本地 `DB_SYNC=true` 会创建 / 同步 `post` 表；该选项可能影响已有数据，**不要在生产环境开启**。生产环境开启时程序会拒绝启动。
+- MySQL 配置、管理员配置与 JWT 密钥缺失时，后端启动会失败；不会悄悄切换数据库或伪造登录成功。
+
+启动后端：
+
+```bash
+npm run dev
+```
+
+默认监听 `0.0.0.0:3000`，统一前缀 `/api`。
+
+### 4. 启动前端
+
+另开终端，从仓库根目录运行：
+
+```bash
+cd frontend
+npm install --package-lock=false
+npm run dev
+```
+
+打开终端显示的地址（默认 `http://localhost:5173`）。浏览器只访问相对地址 `/api`，Vite 代理到 `http://localhost:3000`，不需要在浏览器代码里填写后端地址。远程预览也沿用这个同源代理；`.e2b.app` 已在开发服务器允许列表内。
+
+如需调整开发代理目标，启动 Vite 时设置进程环境变量 `API_PROXY_TARGET`。生产反向代理由 Nginx 负责，`vite preview` 仅用于查看构建产物，不代理 API。
+
+### 5. 发布第一篇文章
+
+1. 打开 `/login`，使用配置的管理员账号与原始密码登录。
+2. 登录后进入 `/admin/edit`。输入标题、摘要、标签及 Markdown 正文。
+3. 标签用英文或中文逗号分隔，最多 8 个、每个最长 30 字符；标题必填且最长 160 字符，摘要最长 500 字符，正文必填且最多 100,000 字符。
+4. 「存草稿」仅后台可见；「发布文章」可在首页精选、博客列表及详情页阅读。
+5. 左侧可分页选择文章，再编辑、转回草稿或删除。删除有二次确认；未保存离开有提醒。
+
+也可以把 [支付回调幂等性草稿](docs/001-idempotency-payment-callback.md) 复制到编辑器后完善发布。`docs/` 不自动导入数据库，不会自动发布。
+
+## 页面与源码导航
+
+| 路由               | 页面            | 说明                                            |
+| ------------------ | --------------- | ----------------------------------------------- |
+| `/`                | `Home.vue`      | 一句话定位、三个项目卡片、最新三篇已发布文章    |
+| `/blog`            | `BlogList.vue`  | 分页与完整标签筛选；状态保存在 URL 查询参数中   |
+| `/blog/:id`        | `Post.vue`      | 已发布文章、安全 Markdown 渲染、加载 / 失败状态 |
+| `/login`           | `Login.vue`     | 管理员登录；token 保存到 localStorage           |
+| `/admin/edit/:id?` | `AdminEdit.vue` | 同页文章管理与新建 / 编辑，前端路由守卫         |
+
+一共五条路由。未知路径由根组件显示未找到提示，不额外新增页面文件。
+
+- `frontend/src/data/projects.ts`：修改姓名、真实求职定位、联系信息、项目描述、三条亮点和链接。空链接不会显示为不可用按钮。
+- `frontend/src/types/index.ts`：前端实体、列表类型、输入参数和通用分页类型。
+- `frontend/src/api/request.ts`：token 请求拦截器、响应剥壳、401 清理。保留真实 `AxiosResponse<T>` 类型，接口函数只返回业务 `data`。
+- `frontend/src/utils/markdown.ts`：安全渲染。高亮内置 TS、JS、JSON、SQL、Bash、HTML/XML、CSS、Java；未知语言转义为普通代码。
+- `backend/src/post/post.entity.ts`：`post` 表定义，无用户表。
+- `backend/src/post/post.service.ts`：列表显式选择非正文列，并使用 `skip/take`、稳定的日期 / ID 降序和参数化 `JSON_CONTAINS` 标签查询。
+
+## API 约定
+
+成功（创建为 HTTP 201，其余 HTTP 200）：
+
+```json
+{ "code": 0, "message": "ok", "data": {} }
+```
+
+失败保留真实 HTTP 状态码（400 / 401 / 404 / 500 等），不以 HTTP 200 冒充成功：
+
+```json
+{ "code": 401, "message": "Unauthorized", "data": null }
+```
+
+分页 `data` 格式为 `{ items, total, page, pageSize }`。查询默认 `page=1&pageSize=10`，`pageSize` 范围 1–50。列表不查询也不返回 `content`。时间采用 ISO 字符串，前端按浏览器时区显示。
+
+| 方法   | 路径                                       | 鉴权 | 说明                                              |
+| ------ | ------------------------------------------ | ---- | ------------------------------------------------- |
+| POST   | `/api/auth/login`                          | 公开 | `{ username, password }` → `{ token, expiresIn }` |
+| GET    | `/api/posts?page=1&pageSize=10&tag=NestJS` | 公开 | 仅已发布；标签为完整、区分大小写的匹配            |
+| GET    | `/api/posts/:id`                           | 公开 | 仅已发布；草稿与不存在均 404                      |
+| GET    | `/api/admin/posts`                         | JWT  | 全部状态的列表，同样分页且不含正文                |
+| GET    | `/api/admin/posts/:id`                     | JWT  | 编辑时读取完整正文，包括草稿                      |
+| POST   | `/api/admin/posts`                         | JWT  | 创建文章                                          |
+| PUT    | `/api/admin/posts/:id`                     | JWT  | 完整更新文章                                      |
+| DELETE | `/api/admin/posts/:id`                     | JWT  | 删除成功返回 `{ id }`                             |
+
+新建 / 更新请求：
+
+```json
+{
+  "title": "从一次支付回调谈幂等性",
+  "summary": "记录重复回调场景中的设计与验证过程。",
+  "content": "## 问题背景\n\n这里填写 Markdown 正文。",
+  "tags": ["幂等性", "MySQL"],
+  "status": "draft"
+}
+```
+
+`status` 仅允许 `draft` 或 `published`；PUT 必须提供全部五个字段。全局 ValidationPipe 拒绝未声明字段、非法分页与错误类型。所有写接口都由后端校验 JWT，前端路由守卫仅改善体验，不能替代接口鉴权。
+
+## 类型与构建检查
+
+```bash
+npm run typecheck --prefix backend
+npm run build --prefix backend
+npm run typecheck --prefix frontend
+npm run build --prefix frontend
+```
+
+产物分别是 `backend/dist/` 与 `frontend/dist/`，不入 Git。因为本次不允许新增测试文件，未增加持久化测试套件；连接 MySQL 后可按下面清单进行验收。
+
+### 手工验收
+
+- [ ] 无 token 访问后台 API → 401；访问 `/admin/edit` → 登录页。
+- [ ] 错误账号 / 密码 → 401；正确账号返回两小时有效 JWT。
+- [ ] 空标题、空白正文、非法状态、重复 / 超长标签、额外字段 → 400。
+- [ ] 建立草稿后，后台列表能看到；前台列表不包含，前台详情 404。
+- [ ] 发布后首页可读；标签筛选、分页及刷新 URL 都保持正确结果。
+- [ ] 列表 JSON 不含 `content`，详情包含正文。
+- [ ] 转回草稿后前台再次不可见；删除后详情 404。
+- [ ] 粘贴 `<script>alert(1)</script>`、`[link](javascript:alert(1))` 等到正文，不执行脚本；未知语言代码块正确转义。
+- [ ] token 过期时清除 localStorage 并回登录；不会跳到外站。
+- [ ] 空数据、接口错误、不存在的文章和移动端布局均有可理解的状态。
+
+## 安全边界与后续维护
+
+- JWT 按要求存放在 localStorage，因此 XSS 风险需要持续控制；只把 DOMPurify 的输出交给 `v-html`，上线后启用 CSP 与 HTTPS。
+- 退出登录仅删除浏览器 token；无刷新 token、服务端会话或撤销名单。令牌泄漏时需轮换 JWT 密钥；修改管理员密码不会立即吊销已签发 token。
+- 后端跨域只允许配置的来源，不开放任意 Origin；同源部署通常不需要跨域。
+- 登录暴力尝试在示例 Nginx 中限流；本地 Nest 服务没有额外限流模块，**生产不得直接暴露 3000 端口**。
+- 当前保存没有多端版本冲突检测，两个标签页同时编辑同一篇文章时最后一次保存覆盖前一次。
+- MySQL、域名证书、服务器环境变量与备份需要自行配置；详见 [部署笔记](deploy/deploy.md)。
