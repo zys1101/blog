@@ -10,3 +10,4 @@ coverage/
 .vscode/
 # 本项目按限定目录交付，安装时不生成 lockfile。
 package-lock.json
+.deploy-meta

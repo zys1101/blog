@@ -150,6 +150,14 @@ CSP 不允许任何远程脚本、样式或字体（站点使用系统字体回�
 - 数据库结构变更单独记录增量 SQL，避免直接用旧代码覆盖新结构。回滚代码不代表能回滚数据。
 - 更改 JWT_SECRET 会使旧 token 失效，需要重新登录；更改管理员密码不会自动吊销已发出的 JWT。
 
+### 脚本化部署与回滚
+
+仓库已内置脚本（服务器布局：`/var/www/devlog-releases/<版本ID>/` 存每个版本，`/var/www/devlog` 为指向当前版本的软链接，Nginx 与 systemd 只认该路径）：
+
+- **一键部署**：本地 Git Bash 运行 `./deploy/deploy.sh`（加 `-y` 跳过未提交改动确认）。流程：打包工作区 → workbench 上传 → 服务器解包并构建为新版本（版本 ID 形如 `20260908-1830-g09ce12e`，含未提交改动时加 `-dirty` 后缀）→ 自动 `mysqldump` 备份数据库 → 软链接切换 → 健康检查；检查失败自动切回上一版本。远端脚本会常驻 `/usr/local/lib/devlog-remote.sh`。
+- **回滚代码**：本地运行 `./deploy/rollback.sh`（回到上一版本）或 `./deploy/rollback.sh <版本ID>`（回到指定版本）；`./deploy/rollback.sh -l` 列出服务器全部版本。等价的服务器端命令：`bash /usr/local/lib/devlog-remote.sh rollback [版本ID]`、`releases`（列版本）、`cleanup`（清旧版本）。
+- **保留策略**：代码版本保留最近 10 个，数据库备份保留最近 30 份于 `/var/backups/devlog-db/`。回滚只切代码；恢复数据用 `gzip -d < blog-xxx.sql.gz | mysql blog`（先确认表结构兼容，见上文增量 SQL 原则）。
+
 ## 可以沉淀成文章的内容
 
 完成真实部署之后，再记录遇到的问题和证据：history 路由刷新 404、代理前缀、Cookie 与 Bearer token 的取舍、CSP 与 Markdown、数据库账号权限、幂等发布与备份恢复。本文目前是计划与操作清单，不应包装成已经解决的线上经历。
