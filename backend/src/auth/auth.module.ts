@@ -18,7 +18,7 @@ import { JwtStrategy } from "./jwt.strategy";
         return {
           secret,
           signOptions: {
-            expiresIn: "2h",
+            expiresIn: "7d",
             algorithm: "HS256",
             issuer: "devlog-api",
             audience: "devlog-admin",

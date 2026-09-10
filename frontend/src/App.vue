@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { useRoute } from "vue-router";
+import { getToken } from "./api/request";
 import { profile } from "./data/projects";
 
 const route = useRoute();
 const menuOpen = ref<boolean>(false);
+// 登录后导航栏追加「文章工作台」;路由切换时同步一次登录态。
+const loggedIn = ref<boolean>(!!getToken());
 watch(
   () => route.fullPath,
   (): void => {
     menuOpen.value = false;
+    loggedIn.value = !!getToken();
   },
 );
 </script>
@@ -54,9 +58,10 @@ watch(
           >技术文章</RouterLink
         >
         <RouterLink
-          to="/login"
-          :class="{ active: route.name === 'login' || route.name === 'admin' }"
-          >管理登录</RouterLink
+          v-if="loggedIn"
+          to="/admin/edit"
+          :class="{ active: route.name === 'admin' }"
+          >文章工作台</RouterLink
         >
       </nav>
       <a
@@ -94,7 +99,7 @@ watch(
         <span
           >© {{ new Date().getFullYear() }} {{ profile.name }} · Built with Vue
           & NestJS</span
-        ><RouterLink to="/login">管理入口 ↗</RouterLink>
+        >
       </div>
     </div>
   </footer>

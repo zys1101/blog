@@ -41,6 +41,6 @@ export class AuthService {
     if (dto.username !== this.username || !passwordMatches)
       throw new UnauthorizedException("用户名或密码错误");
     const payload: AdminIdentity = { sub: "admin", username: this.username };
-    return { token: await this.jwtService.signAsync(payload), expiresIn: 7200 };
+    return { token: await this.jwtService.signAsync(payload), expiresIn: 604800 };
   }
 }
