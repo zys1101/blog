@@ -205,22 +205,22 @@ npm run build --prefix frontend
 
 ## 部署与运维
 
-代码与部署配置同仓库维护：
+线上通过 **GitHub Actions 持续部署**：推送 `main` 分支即自动完成"两端类型检查 → 构建 → 上传 → 服务器原子切换 → 健康检查 → 公网验收"，任意一步失败不会影响线上版本（定义见 [.github/workflows/deploy.yml](.github/workflows/deploy.yml)）。同一时间只允许一个发布流程（concurrency 排队），部署历史可在仓库的 Actions 页面查看。
 
-- `deploy/nginx.conf`：生产 Nginx 配置模板（SPA 回退、`/api` 反代、gzip、安全响应头、登录限流）。
-- `deploy/deploy.md`：完整部署手册（数据库初始化、systemd、证书签发、验收清单、备份策略）。
-- `deploy/deploy.sh`：一键发布——打包工作区上传服务器，在新版本目录内构建，自动备份数据库后原子切换软链接，健康检查失败自动回滚。
-- `deploy/rollback.sh`：一行命令回滚到上一版本或任意历史版本（服务器保留最近 10 个版本）。
+服务器侧沿用"版本目录 + 软链接"布局：`/var/www/devlog-releases/<版本ID>/` 存每个版本，`/var/www/devlog` 为指向当前版本的软链接，Nginx 与 systemd 只认该路径；发布与回滚由服务器脚本 `/usr/local/lib/devlog-remote.sh` 完成（每次部署随仓库更新），健康检查失败自动切回上一版本。
 
-日常发布：
+仓库同时保留手动发布通道（SSH 不可用或需要紧急本地发布时）：
+
+- `deploy/deploy.sh`：打包工作区 → workbench 上传 → 服务器构建、备份数据库、原子切换、健康检查。
+- `deploy/rollback.sh`：回滚到上一版本或任意历史版本（`-l` 查看全部版本）。
 
 ```bash
-./deploy/deploy.sh        # 发布当前工作区
+./deploy/deploy.sh        # 手动发布当前工作区
 ./deploy/rollback.sh -l   # 查看线上历史版本
 ./deploy/rollback.sh      # 回滚到上一版本
 ```
 
-数据库每日快照随发布自动生成于服务器 `/var/backups/devlog-db/`，恢复方式与保留策略见部署手册。
+部署密钥为仅限该服务器使用的独立 SSH 密钥（GitHub Secrets 存储），服务器 `/root/.ssh/authorized_keys` 中以 `restrict` 选项限制只可执行命令；数据库每日快照随发布自动生成于服务器 `/var/backups/devlog-db/`，恢复方式与保留策略见部署手册。
 
 ## 后续规划
 
