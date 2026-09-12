@@ -70,9 +70,9 @@ cmd_stage() { # stage <tar包> <版本ID>
   fi
   chmod 600 "$dir/backend/.env" 2>/dev/null || true
   log "安装后端依赖并构建"
-  (cd "$dir/backend" && npm install --package-lock=false --no-audit --no-fund && npm run build)
+  (cd "$dir/backend" && npm ci --no-audit --no-fund && npm run build)
   log "安装前端依赖并构建"
-  (cd "$dir/frontend" && npm install --package-lock=false --no-audit --no-fund && npm run build)
+  (cd "$dir/frontend" && npm ci --no-audit --no-fund && npm run build)
   chown -R devlog:devlog "$dir"
   log "构建完成:$dir"
 }

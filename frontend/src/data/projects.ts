@@ -1,13 +1,13 @@
 import type { Profile, Project } from "../types";
 
-// 以下定位信息仅作展示模板，上线求职前请替换成真实信息。
+// 个人定位与项目卡片数据,改这里即可更新首页。
 export const profile: Profile = {
   name: "zrocks",
   role: "后端开发 / 全栈探索",
   positioning: "以工程思维解决问题，用可靠的代码把想法变成产品。",
   email: "zrocks@qq.com",
   github: "https://github.com/zys1101",
-  resume: "", // 可填写外部简历链接；本骨架不提供文件上传。
+  resume: "", // 可填写外部简历链接；站点不提供文件上传。
 };
 
 export const projects: Project[] = [

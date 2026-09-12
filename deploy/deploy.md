@@ -16,15 +16,15 @@
 将代码放在 `/var/www/devlog`，从该目录运行：
 
 ```bash
-npm install --prefix backend --package-lock=false
-npm install --prefix frontend --package-lock=false
+npm ci --prefix backend
+npm ci --prefix frontend
 npm run typecheck --prefix backend
 npm run build --prefix backend
 npm run typecheck --prefix frontend
 npm run build --prefix frontend
 ```
 
-当前指定目录不包含锁文件，因此暂不使用 `npm ci`。构建验证完成后可以 `npm prune --omit=dev --prefix backend --package-lock=false`，下次构建前需重新安装开发依赖。不要把 node_modules 与 dist 提交到 Git。
+仓库包含 `package-lock.json`，安装统一使用 `npm ci` 以保证依赖可复现。构建验证完成后可以 `npm prune --omit=dev --prefix backend`，下次构建前需重新安装开发依赖。不要把 node_modules 与 dist 提交到 Git。
 
 ## 3. 初始化生产数据库
 

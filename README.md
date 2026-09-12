@@ -1,8 +1,10 @@
 # DEV.LOG · 个人作品集与技术博客
 
-面向求职展示的全栈博客骨架：用作品集介绍项目，用技术文章解释工程思考。前后端均使用 **TypeScript 严格模式**，前后端分离，作品集数据与文章数据分开维护。
+一个前后端分离的个人站点：首页用作品集介绍项目经历，博客部分发布技术文章、沉淀工程思考。前后端均为 **TypeScript 严格模式**，作品集数据（静态维护）与文章数据（MySQL 存储）分离。
 
-> 姓名、求职定位及两个占位项目不是个人履历，请在上线前替换为真实内容。数据库初始为空，不自动发布示例文章。此版本仅提供单管理员登录，不包含注册、多用户、角色权限、评论、点赞、浏览量、搜索或文件上传。
+当前已部署在阿里云 ECS（Ubuntu 22.04 + Nginx + systemd + MySQL 8），发布流程脚本化，支持版本回滚，详见[部署](#部署与运维)一节与 [deploy/deploy.md](deploy/deploy.md)。
+
+**功能范围**：单人内容管理模式——单管理员登录、草稿 / 发布流转、标签与分页；刻意不做注册、多用户、角色权限、评论、点赞、浏览量、搜索和文件上传，把复杂度留给内容本身。
 
 ## 技术栈
 
@@ -12,9 +14,9 @@
 | 文章渲染   | markdown-it → highlight.js → DOMPurify；禁用原始 HTML，最终 HTML 再清洗 |
 | 后端       | NestJS、TypeScript、TypeORM、MySQL 8.0+                                 |
 | 鉴权与校验 | JWT / passport-jwt、bcrypt、class-validator、class-transformer          |
-| 部署       | Nginx 静态托管、HTTPS、`/api` 反向代理                                  |
+| 部署       | Nginx 静态托管与 `/api` 反向代理、gzip、登录限流、systemd 常驻           |
 
-没有 UI 框架，页面用手写 CSS 实现响应式布局。字体有系统字体回退，不依赖远程字体才能运行。
+没有引入 UI 框架，页面用手写 CSS 实现响应式布局；字体走系统字体栈，不依赖任何远程资源即可运行（CSP 因此可以完全收紧到 `self`）。
 
 ## 本地启动
 
@@ -22,13 +24,13 @@
 
 - Node.js **22.12+**（建议 Node 22 LTS）、npm 10+
 - MySQL **8.0+**（建议 8.4 LTS），字符集 `utf8mb4`
-- 两个终端，分别启动前后端；命令默认从仓库根目录开始
+- 两个终端分别启动前后端；命令默认从仓库根目录开始
 
-严格按照指定目录交付，没有额外的 `.env.example`、锁文件、测试文件或迁移文件。安装命令带 `--package-lock=false`，避免额外生成文件；因此依赖尚未锁定。正式长期维护时，建议确认可以增加锁文件后再使用 `npm ci`。
+依赖通过仓库内的 `package-lock.json` 锁定（backend 与 frontend 各一份），首次安装或 CI 环境用 `npm ci`，日常开发用 `npm install`。
 
 ### 2. 初始化本地数据库
 
-以数据库管理员身份运行以下 SQL。账号密码仅是需要替换的占位符，不是应用默认凭据。
+以数据库管理员身份运行以下 SQL（账号密码请替换为自己的值）：
 
 ```sql
 CREATE DATABASE blog CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -37,25 +39,25 @@ GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES
   ON blog.* TO 'blog_app'@'127.0.0.1';
 ```
 
-该授权仅用于本地自动同步表结构。生产环境仅授予 CRUD，见 [部署笔记](deploy/deploy.md)。如果 MySQL 按主机名解析本地账号，请使用匹配实际连接主机的账号（例如 `localhost`），不要为了排错开放 `%`。
+该授权范围用于本地开发时的表结构自动同步。生产环境仅授予 CRUD，见 [部署笔记](deploy/deploy.md)。如果 MySQL 按主机名解析本地账号，请使用匹配实际连接主机的账号（例如 `localhost`），不要为了排错开放 `%`。
 
 ### 3. 安装后端并设置管理员
 
 ```bash
 cd backend
-npm install --package-lock=false
+npm ci
 npm run hash-password
 ```
 
-在本地终端输入至少 12 个字符的强密码（最多 72 个 UTF-8 字节）。**这个辅助命令会显示输入，仅在可信的本地终端执行**；密码不会写进 shell 命令历史。复制输出的 bcrypt 哈希，用于下面的配置。
+在本地终端输入至少 12 个字符的强密码（最多 72 个 UTF-8 字节）。**该辅助命令会回显输入，只在可信的本地终端执行**；密码不会写进 shell 命令历史。复制输出的 bcrypt 哈希用于下面的配置。
 
-生成 JWT 随机密钥（下面输出 64 字符的随机十六进制字符串）：
+生成 JWT 随机密钥（输出 64 字符的随机十六进制字符串）：
 
 ```bash
 openssl rand -hex 32
 ```
 
-自行创建 `backend/.env`（已被 Git 忽略；不属于交付源码清单）：
+创建 `backend/.env`（已被 Git 忽略，密钥不进仓库）：
 
 ```dotenv
 NODE_ENV=development
@@ -72,12 +74,12 @@ JWT_SECRET='REPLACE_WITH_THE_RANDOM_SECRET'
 CORS_ORIGINS=http://localhost:5173
 ```
 
-- 没有内置用户名密码，也不建立用户表。唯一管理员从环境变量读取。
-- 密码与哈希不要提交到 Git；`.env` 中含 `#` 等特殊字符的值要加引号。
+- 没有内置用户名密码，也不建立用户表，唯一管理员从环境变量读取。
+- 密码与哈希不提交 Git；`.env` 中含 `#` 等特殊字符的值要加引号。
 - 哈希使用 bcrypt cost 12；JWT 有效期固定 **7 天**，只接受 HS256，并校验 issuer / audience。
 - `.env` 相对后端工作目录加载，务必在 `backend/` 运行后端命令。
-- 本地 `DB_SYNC=true` 会创建 / 同步 `post` 表；该选项可能影响已有数据，**不要在生产环境开启**。生产环境开启时程序会拒绝启动。
-- MySQL 配置、管理员配置与 JWT 密钥缺失时，后端启动会失败；不会悄悄切换数据库或伪造登录成功。
+- 本地 `DB_SYNC=true` 会创建 / 同步 `post` 表；该选项可能影响已有数据，**生产环境禁止开启**，生产环境开启时程序会拒绝启动。
+- MySQL 配置、管理员配置与 JWT 密钥缺失时后端启动直接失败，不会悄悄切换数据库或伪造登录成功。
 
 启动后端：
 
@@ -93,23 +95,21 @@ npm run dev
 
 ```bash
 cd frontend
-npm install --package-lock=false
+npm ci
 npm run dev
 ```
 
-打开终端显示的地址（默认 `http://localhost:5173`）。浏览器只访问相对地址 `/api`，Vite 代理到 `http://localhost:3000`，不需要在浏览器代码里填写后端地址。远程预览也沿用这个同源代理；`.e2b.app` 已在开发服务器允许列表内。
+打开终端显示的地址（默认 `http://localhost:5173`）。浏览器只访问相对地址 `/api`，由 Vite 代理到 `http://localhost:3000`，前端代码里没有任何硬编码的后端地址。
 
 如需调整开发代理目标，启动 Vite 时设置进程环境变量 `API_PROXY_TARGET`。生产反向代理由 Nginx 负责，`vite preview` 仅用于查看构建产物，不代理 API。
 
 ### 5. 发布第一篇文章
 
-1. 打开 `/login`，使用配置的管理员账号与原始密码登录。
-2. 登录后进入 `/admin/edit`。输入标题、摘要、标签及 Markdown 正文。
+1. 打开 `/login`，使用配置的管理员账号与原始密码登录（登录入口只在首页，登录后导航栏出现「文章工作台」）。
+2. 进入 `/admin/edit`，输入标题、摘要、标签及 Markdown 正文。
 3. 标签用英文或中文逗号分隔，最多 8 个、每个最长 30 字符；标题必填且最长 160 字符，摘要最长 500 字符，正文必填且最多 100,000 字符。
 4. 「存草稿」仅后台可见；「发布文章」可在首页精选、博客列表及详情页阅读。
-5. 左侧可分页选择文章，再编辑、转回草稿或删除。删除有二次确认；未保存离开有提醒。
-
-也可以把 [支付回调幂等性草稿](docs/001-idempotency-payment-callback.md) 复制到编辑器后完善发布。`docs/` 不自动导入数据库，不会自动发布。
+5. 左侧分页选择文章，可再编辑、转回草稿或删除。删除有二次确认；未保存离开有提醒。
 
 ## 页面与源码导航
 
@@ -121,9 +121,9 @@ npm run dev
 | `/login`           | `Login.vue`     | 管理员登录；token 保存到 localStorage           |
 | `/admin/edit/:id?` | `AdminEdit.vue` | 同页文章管理与新建 / 编辑，前端路由守卫         |
 
-一共五条路由。未知路径由根组件显示未找到提示，不额外新增页面文件。
+一共五条路由。未知路径由根组件显示未找到提示。
 
-- `frontend/src/data/projects.ts`：修改姓名、真实求职定位、联系信息、项目描述、三条亮点和链接。空链接不会显示为不可用按钮。
+- `frontend/src/data/projects.ts`：个人定位、联系方式与项目卡片数据（名称、描述、亮点、仓库链接）都在这里维护；空链接不会渲染成不可用按钮。
 - `frontend/src/types/index.ts`：前端实体、列表类型、输入参数和通用分页类型。
 - `frontend/src/api/request.ts`：token 请求拦截器、响应剥壳、401 清理。保留真实 `AxiosResponse<T>` 类型，接口函数只返回业务 `data`。
 - `frontend/src/utils/markdown.ts`：安全渲染。高亮内置 TS、JS、JSON、SQL、Bash、HTML/XML、CSS、Java；未知语言转义为普通代码。
@@ -180,26 +180,51 @@ npm run typecheck --prefix frontend
 npm run build --prefix frontend
 ```
 
-产物分别是 `backend/dist/` 与 `frontend/dist/`，不入 Git。因为本次不允许新增测试文件，未增加持久化测试套件；连接 MySQL 后可按下面清单进行验收。
+产物分别是 `backend/dist/` 与 `frontend/dist/`，不入 Git。项目当前以手工验收清单覆盖核心链路（自动化测试在规划中，见下）。
 
-### 手工验收
+### 手工验收清单
 
 - [ ] 无 token 访问后台 API → 401；访问 `/admin/edit` → 登录页。
-- [ ] 错误账号 / 密码 → 401；正确账号返回两小时有效 JWT。
+- [ ] 错误账号 / 密码 → 401；正确账号返回 7 天有效 JWT。
 - [ ] 空标题、空白正文、非法状态、重复 / 超长标签、额外字段 → 400。
 - [ ] 建立草稿后，后台列表能看到；前台列表不包含，前台详情 404。
 - [ ] 发布后首页可读；标签筛选、分页及刷新 URL 都保持正确结果。
 - [ ] 列表 JSON 不含 `content`，详情包含正文。
 - [ ] 转回草稿后前台再次不可见；删除后详情 404。
 - [ ] 粘贴 `<script>alert(1)</script>`、`[link](javascript:alert(1))` 等到正文，不执行脚本；未知语言代码块正确转义。
-- [ ] token 过期时清除 localStorage 并回登录；不会跳到外站。
+- [ ] token 过期时清除 localStorage 并回登录页；不会跳到外站。
 - [ ] 空数据、接口错误、不存在的文章和移动端布局均有可理解的状态。
 
-## 安全边界与后续维护
+## 安全设计
 
-- JWT 按要求存放在 localStorage，因此 XSS 风险需要持续控制；只把 DOMPurify 的输出交给 `v-html`，上线后启用 CSP 与 HTTPS。
-- 退出登录仅删除浏览器 token；无刷新 token、服务端会话或撤销名单。令牌泄漏时需轮换 JWT 密钥；修改管理员密码不会立即吊销已签发 token。
-- 后端跨域只允许配置的来源，不开放任意 Origin；同源部署通常不需要跨域。
-- 登录暴力尝试在示例 Nginx 中限流；本地 Nest 服务没有额外限流模块，**生产不得直接暴露 3000 端口**。
-- 当前保存没有多端版本冲突检测，两个标签页同时编辑同一篇文章时最后一次保存覆盖前一次。
-- MySQL、域名证书、服务器环境变量与备份需要自行配置；详见 [部署笔记](deploy/deploy.md)。
+- token 存放在 localStorage，因此 XSS 是主要威胁面：只把 DOMPurify 清洗后的 HTML 交给 `v-html`，生产环境配合 CSP（`script-src 'self'`，无任何远程脚本 / 样式 / 字体白名单）与 HTTPS。
+- 退出登录仅删除浏览器 token；无刷新 token、服务端会话或撤销名单。令牌泄漏时轮换 `JWT_SECRET`；修改管理员密码不会吊销已签发 token。
+- 后端跨域只允许配置的来源；同源部署下前端只走相对路径 `/api`。
+- 登录暴力尝试由 Nginx 按 IP 限流（5 次/分钟）；本地 Nest 服务没有额外限流模块，**生产环境不得直接暴露 3000 端口**（安全组仅放行 80/443）。
+- 当前没有多端版本冲突检测，两个标签页同时编辑同一篇文章时后一次保存覆盖前一次。
+
+## 部署与运维
+
+代码与部署配置同仓库维护：
+
+- `deploy/nginx.conf`：生产 Nginx 配置模板（SPA 回退、`/api` 反代、gzip、安全响应头、登录限流）。
+- `deploy/deploy.md`：完整部署手册（数据库初始化、systemd、证书签发、验收清单、备份策略）。
+- `deploy/deploy.sh`：一键发布——打包工作区上传服务器，在新版本目录内构建，自动备份数据库后原子切换软链接，健康检查失败自动回滚。
+- `deploy/rollback.sh`：一行命令回滚到上一版本或任意历史版本（服务器保留最近 10 个版本）。
+
+日常发布：
+
+```bash
+./deploy/deploy.sh        # 发布当前工作区
+./deploy/rollback.sh -l   # 查看线上历史版本
+./deploy/rollback.sh      # 回滚到上一版本
+```
+
+数据库每日快照随发布自动生成于服务器 `/var/backups/devlog-db/`，恢复方式与保留策略见部署手册。
+
+## 后续规划
+
+- 自动化测试：后端接口（supertest）与前端关键路径（Vitest + Testing Library）。
+- HTTPS 与域名：域名备案完成后启用 Let's Encrypt 证书与 HSTS。
+- SEO：meta description、Open Graph、sitemap 与文章页预渲染。
+- RSS 订阅与文章图床（对象存储直传，不经过应用服务器）。
