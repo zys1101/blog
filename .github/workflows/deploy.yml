@@ -1,0 +1,90 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 同一时间只允许一个发布流程,避免并发切换版本。
+concurrency:
+  group: production
+  cancel-in-progress: false
+
+env:
+  SSH_HOST: ${{ secrets.SSH_HOST }}
+  SSH_USER: ${{ secrets.SSH_USER }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: 后端安装、类型检查与构建
+        run: |
+          cd backend
+          npm ci
+          npm run typecheck
+          npm run build
+
+      - name: 前端安装、类型检查与构建
+        run: |
+          cd frontend
+          npm ci
+          npm run typecheck
+          npm run build
+
+      - name: 准备 SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: 打包并上传
+        run: |
+          RELEASE_ID="$(date +%Y%m%d-%H%M%S)-g${GITHUB_SHA::7}"
+          echo "RELEASE_ID=$RELEASE_ID" >> "$GITHUB_ENV"
+          tar czf "/tmp/devlog-$RELEASE_ID.tar.gz" \
+            --exclude=node_modules --exclude=dist --exclude=.env \
+            README.md backend frontend deploy docs .gitignore .gitattributes
+          scp -i ~/.ssh/id_ed25519 "/tmp/devlog-$RELEASE_ID.tar.gz" \
+            "$SSH_USER@$SSH_HOST:/tmp/devlog-$RELEASE_ID.tar.gz"
+
+      - name: 服务器构建并切换版本(健康检查失败自动回滚)
+        run: |
+          ssh -i ~/.ssh/id_ed25519 "$SSH_USER@$SSH_HOST" bash -s -- "$RELEASE_ID" <<'REMOTE'
+            set -euo pipefail
+            RELEASE_ID="$1"
+            TARBALL="/tmp/devlog-$RELEASE_ID.tar.gz"
+            [ -f "$TARBALL" ] || { echo "tar 包不存在"; exit 1; }
+            rm -rf /tmp/devlog-ci-bootstrap && mkdir -p /tmp/devlog-ci-bootstrap
+            tar xzf "$TARBALL" -C /tmp/devlog-ci-bootstrap deploy/remote/deploy-remote.sh
+            tr -d '\r' < /tmp/devlog-ci-bootstrap/deploy/remote/deploy-remote.sh > /usr/local/lib/devlog-remote.sh
+            chmod +x /usr/local/lib/devlog-remote.sh
+            bash /usr/local/lib/devlog-remote.sh stage "$TARBALL" "$RELEASE_ID"
+            bash /usr/local/lib/devlog-remote.sh activate "$RELEASE_ID"
+          REMOTE
+
+      - name: 公网验收
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' -m 15 "http://$SSH_HOST/")
+          echo "首页 HTTP $code"
+          [ "$code" = "200" ] || { echo "公网验收失败"; exit 1; }
+
+      - name: 发布摘要
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ## 部署完成
+          - 线上版本:\`${RELEASE_ID}\`
+          - 提交:\`${GITHUB_SHA}\`
+          - 回滚:服务器执行 \`bash /usr/local/lib/devlog-remote.sh rollback\`,或本地 \`./deploy/rollback.sh\`
+          EOF
